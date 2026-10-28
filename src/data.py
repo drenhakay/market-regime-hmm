@@ -66,3 +66,9 @@ def emissions(prices: pd.DataFrame) -> tuple[np.ndarray, pd.DatetimeIndex, pd.Se
     dates = combined.index
     next_day_ret = combined['next_ret']
     return (X, dates, next_day_ret)
+
+
+
+def clean_ticker(ticker: str) -> str:
+    new_ticker = ticker.removeprefix('^')
+    return new_ticker

@@ -1,0 +1,5 @@
+strategy,ann_return,ann_vol,sharpe,sortino,max_dd,dd_duration,annual_turnover,ticker,sharpe_5bps,map
+regime overlay,0.0614,0.0902,0.7058,0.9683,-0.1486,673,6.0243,GSPC,0.6720,headline
+buy & hold,0.0877,0.1873,0.5427,0.7608,-0.5678,1375,0.0000,GSPC,0.5426,headline
+fixed 60%,0.0562,0.1124,0.5427,0.7608,-0.3803,1242,0.0000,GSPC,0.5426,headline
+vol target,0.1185,0.1819,0.7068,0.9798,-0.4368,873,4.2136,GSPC,0.6951,headline

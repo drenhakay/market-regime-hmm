@@ -7,7 +7,8 @@ import numpy as np
 import pandas as pd
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import Patch
-from matplotlib.ticker import FuncFormatter, NullFormatter
+from matplotlib.ticker import FuncFormatter, NullFormatter, LogLocator
+from src.data import clean_ticker
 
 FIG_DIR = Path(__file__).resolve().parent.parent / "figures"
 FIG_DIR.mkdir(exist_ok=True)
@@ -33,32 +34,34 @@ def _style(ax: plt.Axes) -> None:
     ax.tick_params(colors=INK_2, labelsize=9)
 
 
-def _plain_log_axis(ax: plt.Axes, ticks: list[float], fmt: str) -> None:
+def _plain_log_axis(ax: plt.Axes, fmt: str) -> None:
     """
     Plain numeric ticks on a log y-axis.
     """
-    ax.set_yticks(ticks)
+    ax.yaxis.set_major_locator(LogLocator(subs=(1, 2, 5)))
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: fmt.format(v)))
     ax.yaxis.set_minor_formatter(NullFormatter())
 
 
-def _save(fig: plt.Figure, name: str) -> None:
+def _save(fig: plt.Figure, name: str, ticker: str = '^GSPC') -> None:
+    name = clean_ticker(ticker) + '_' + name
     fig.savefig(FIG_DIR / name, dpi=150, facecolor=SURFACE, bbox_inches="tight")
 
 
 def plot_regime_price(prices: pd.DataFrame, dates: pd.DatetimeIndex,
-                      ranked_states: np.ndarray) -> plt.Figure:
+                      ranked_states: np.ndarray, ticker: str = '^GSPC') -> plt.Figure:
     """
     Close price (log axis) with the background shaded by full-sample Viterbi regime.
     ranked_states must already be vol-ranked. Interpretation only, not a trading signal.
     """
+    ticker = clean_ticker(ticker)
     close = prices["Close"].loc[dates]
     fig, ax = plt.subplots(figsize=(12, 5), facecolor=SURFACE)
     _style(ax)
     ax.semilogy(close.index, close.values, color=INK, lw=1.0)
     ax.set_xlim(dates[0], dates[-1])                             # axvspan otherwise pads the x-axis
     ax.set_ylim(close.min() * 0.85, close.max() * 1.1)
-    _plain_log_axis(ax, [600, 1000, 2000, 4000, 8000], "{:,.0f}")
+    _plain_log_axis(ax, "{:,.0f}")
 
     # one span per run of the same state
     starts = np.r_[0, np.flatnonzero(np.diff(ranked_states)) + 1]
@@ -79,9 +82,9 @@ def plot_regime_price(prices: pd.DataFrame, dates: pd.DatetimeIndex,
     ax.legend(handles=[Patch(facecolor=c, label=l) for c, l in zip(REGIME_COLORS, REGIME_LABELS)],
               loc="upper left", frameon=True, facecolor=SURFACE, edgecolor="none", framealpha=1,
               labelcolor=INK_2, fontsize=9, title="regime", title_fontsize=9)
-    ax.set_title("S&P 500 by inferred regime (full-sample Viterbi)", loc="left", color=INK, fontsize=12)
-    ax.set_ylabel("index level (log)", color=INK_2, fontsize=9)
-    _save(fig, "regime_price.png")
+    ax.set_title(ticker + ' ' + "by inferred regime (full-sample Viterbi)", loc="left", color=INK, fontsize=12)
+    ax.set_ylabel("price (log)", color=INK_2, fontsize=9)
+    _save(fig, "regime_price.png", ticker)
     return fig
 
 
@@ -95,7 +98,7 @@ def _common_returns(results: dict[str, pd.DataFrame]) -> dict[str, pd.Series]:
     return {name: frame.loc[shared, "strat_ret"] for name, frame in results.items()}
 
 
-def plot_equity_curves(results: dict[str, pd.DataFrame]) -> plt.Figure:
+def plot_equity_curves(results: dict[str, pd.DataFrame], ticker: str = '^GSPC') -> plt.Figure:
     """
     Growth of 1 for each strategy on a log axis, rebased on the shared start date.
     """
@@ -106,15 +109,15 @@ def plot_equity_curves(results: dict[str, pd.DataFrame]) -> plt.Figure:
         eq = (1 + r).cumprod()
         ax.semilogy(eq.index, eq.values, lw=1.6, color=STRATEGY_COLORS.get(name, INK_2),
                     label=f"{name} ({eq.iloc[-1]:.1f}x)")
-    _plain_log_axis(ax, [0.5, 1, 2, 5, 10], "{:g}x")
+    _plain_log_axis(ax, "{:g}x")
     ax.legend(loc="upper left", frameon=False, labelcolor=INK_2, fontsize=9)
     ax.set_title("Walk-forward equity, growth of 1", loc="left", color=INK, fontsize=12)
     ax.set_ylabel("equity (log)", color=INK_2, fontsize=9)
-    _save(fig, "equity_curves.png")
+    _save(fig, "equity_curves.png", ticker)
     return fig
 
 
-def plot_drawdowns(results: dict[str, pd.DataFrame]) -> plt.Figure:
+def plot_drawdowns(results: dict[str, pd.DataFrame], ticker: str = '^GSPC') -> plt.Figure:
     """
     Underwater chart. The first entry (the overlay) is filled, the baselines are lines only.
     """
@@ -132,11 +135,11 @@ def plot_drawdowns(results: dict[str, pd.DataFrame]) -> plt.Figure:
               title_fontsize=9)
     ax.set_title("Drawdown from running peak", loc="left", color=INK, fontsize=12)
     ax.set_ylabel("drawdown (%)", color=INK_2, fontsize=9)
-    _save(fig, "drawdowns.png")
+    _save(fig, "drawdowns.png", ticker)
     return fig
 
 
-def plot_transition_heatmap(P: np.ndarray, labels: list[str] = REGIME_LABELS) -> plt.Figure:
+def plot_transition_heatmap(P: np.ndarray, labels: list[str] = REGIME_LABELS, ticker: str = '^GSPC') -> plt.Figure:
     """
     Annotated heatmap of the ranked transition matrix (rows = from, columns = to).
     """
@@ -155,5 +158,5 @@ def plot_transition_heatmap(P: np.ndarray, labels: list[str] = REGIME_LABELS) ->
     ax.set_title("Regime transition probabilities", loc="left", color=INK, fontsize=12)
     for spine in ax.spines.values():
         spine.set_visible(False)
-    _save(fig, "transition_heatmap.png")
+    _save(fig, "transition_heatmap.png", ticker)
     return fig

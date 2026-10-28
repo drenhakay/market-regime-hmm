@@ -1,0 +1,5 @@
+strategy,ann_return,ann_vol,sharpe,sortino,max_dd,dd_duration,annual_turnover,ticker,sharpe_5bps,map
+regime overlay,0.0196,0.1135,0.2280,0.3317,-0.3188,1952,5.9441,TLT,0.2018,mirror
+buy & hold,0.0293,0.1491,0.2683,0.3842,-0.4835,1531,0.0000,TLT,0.2682,mirror
+fixed 60%,0.0202,0.0895,0.2683,0.3842,-0.3198,1531,0.0000,TLT,0.2682,mirror
+vol target,0.0297,0.1403,0.2789,0.3952,-0.4610,1531,7.6191,TLT,0.2515,mirror
