@@ -27,11 +27,12 @@ def hmm_pipeline(ticker: str = '^GSPC', min_train: int = 1000, step: int = 21, n
     # ticker and settings in name to distinguish and reuse
     cache = DATA_DIR / f'{clean}_wf_states_{min_train}_{step}_{n_states}.parquet'
     if cache.exists():
-        states = pd.read_parquet(cache)['state']
+        frame = pd.read_parquet(cache)
     else:
-        states = walk_forward_states(X, dates, min_train=min_train, step=step, n_states=n_states)
-        states.to_frame('state').to_parquet(cache)
-    assert states.index.equals(dates[min_train:]), 'stale cache: delete it and re-run'
+        frame = walk_forward_states(X, dates, min_train=min_train, step=step, n_states=n_states)
+        frame.to_parquet(cache)
+    assert frame.index.equals(dates[min_train:]), 'stale cache: delete it and re-run'
+    states = frame['state']
     regime_share = states.map({0: 'calm', 1: 'choppy', 2: 'crisis'}).value_counts(normalize=True)
 
     res_overlay = overlay(states, next_day_ret, exposure_map)
@@ -67,6 +68,13 @@ def hmm_pipeline(ticker: str = '^GSPC', min_train: int = 1000, step: int = 21, n
         plt.close(plot_equity_curves(results, ticker=ticker))
         plt.close(plot_drawdowns(results, ticker=ticker))
 
-    return {'ticker': clean, 'table': table, 'states': states, 'results': results,
-            'regime_share': regime_share, 'state_table': state_table, 'transitions': transitions,
+    return {'ticker': clean,
+            'table': table,
+            'states': states,
+            'probs': frame.drop(columns=['state', 'mu', 'sigma']),
+            'results': results,
+            'forecast': frame[['mu', 'sigma']],
+            'regime_share': regime_share,
+            'state_table': state_table,
+            'transitions': transitions,
             'ranked': ranked}

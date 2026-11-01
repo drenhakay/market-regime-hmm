@@ -6,16 +6,16 @@ from scipy.special import logsumexp
 from itertools import groupby
 
 from src.hmm import fit_hmm, label_states
+from src.data import FEATURE_COLS
 
 TRADING_DAYS = 252
 
 
-def _filtered_states(model, X_seq: np.ndarray, n_past: int) -> np.ndarray:
+def _filtered_probs(model, X_seq: np.ndarray, n_past: int) -> np.ndarray:
     """
     Forward filter: the state at row i uses only rows 0..i (no backward pass).
 
-    One log-space forward pass over X_seq; returns the argmax filtered state for the rows
-    from n_past on (the new block).
+    One log-space forward pass over X_seq; returns P(state | rows 0..i).
     """
     framelogprob = model._compute_log_likelihood(X_seq)          # (T, K) emission log-probs
     with np.errstate(divide='ignore'):                           # zero probs give -inf, which is fine
@@ -29,28 +29,43 @@ def _filtered_states(model, X_seq: np.ndarray, n_past: int) -> np.ndarray:
         # alpha[i, j] = logsumexp_k(alpha[i-1, k] + log P(k -> j)) + emission log-prob[i, j]
         alpha[i] = logsumexp(alpha[i - 1][:, None] + log_transmat, axis=0) + framelogprob[i]
 
-    return alpha[n_past:].argmax(axis=1)
+    return np.exp(alpha[n_past:] - logsumexp(alpha[n_past:], axis=1, keepdims=True))
 
 
-def walk_forward_states(X, dates, min_train=1000, step=21, n_states=3) -> pd.Series:
+def walk_forward_states(X, dates, min_train=1000, step=21, n_states=3) -> pd.DataFrame:
     """
     Expanding-window walk-forward state inference.
 
     Each model is fit on X[:t] and forward-filters the next `step` days, with its states
     re-ranked by volatility; t then moves forward and the model is refit.
-    Ranked states as a Series indexed by date.
+    Ranked states, probabilities and next-day return forecast (mu, sigma) as a DataFrame
+    indexed by date.
     """
     pieces = []
     t = min_train
+    r = FEATURE_COLS.index('Return')
     while t < len(X):
         model = fit_hmm(X[:t], n_states=n_states)
         mapping = label_states(model)                            # raw -> vol rank, this fit
-
         end = min(t + step, len(X))
-        # one forward pass over past + new block; filtered states for days t..end-1
-        filt = _filtered_states(model, X[:end], n_past=t)
+        # one forward pass over past + new block; filtered probs for days t..end-1
+        probs = _filtered_probs(model, X[:end], n_past=t)
         lut = np.array([mapping[k] for k in range(n_states)])    # same mapping as an array, for indexing
-        pieces.append(pd.Series(lut[filt], index=dates[t:end]))
+        order = np.argsort(lut)                                  # rank -> raw column
+        ranked = probs[:, order]
+        state = ranked.argmax(axis=1)
+        weights = probs @ model.transmat_                        # P(state tomorrow | data to today), raw order
+        mu_k = model.means_[:, r]
+        var_k = model.covars_[:, r, r]
+        mu = weights @ mu_k
+        sigma_sqr = weights @ (var_k + mu_k ** 2) - mu ** 2
+        sigma = np.sqrt(sigma_sqr) / 100
+        mu = mu / 100
+        frame = pd.DataFrame(ranked, index=dates[t:end], columns=[f'p{n}' for n in range(n_states)])
+        frame['state'] = state
+        frame['mu'] = mu
+        frame['sigma'] = sigma
+        pieces.append(frame)
         t = end
     return pd.concat(pieces).sort_index()
 
