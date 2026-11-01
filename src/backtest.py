@@ -86,6 +86,20 @@ def overlay(states: pd.Series, next_day_ret: pd.Series, exposure_map: dict) -> p
     return combined[['exposure', 'strat_ret', 'equity']]
 
 
+def prob_overlay(probs: pd.DataFrame, next_day_ret: pd.Series, exposure_map: dict) -> pd.DataFrame:
+    """
+    Same as overlay() but exposure is the map weighted by the filtered probabilities.
+    """
+    combined = pd.concat([probs, next_day_ret], axis=1, join='inner')
+    K = probs.shape[1]
+    map_vec = np.array([exposure_map[k] for k in range(K)])
+    # p0..pK-1 are vol-ranked, matching the map's keys 0..K-1
+    combined['exposure'] = combined[probs.columns].to_numpy() @ map_vec
+    combined['strat_ret'] = combined['exposure'] * combined['next_ret']
+    combined['equity'] = (1 + combined['strat_ret']).cumprod()
+    return combined[['exposure', 'strat_ret', 'equity']]
+
+
 def baselines(next_day_ret: pd.Series) -> dict[str, pd.DataFrame]:
     """
     Baseline strategies on the same next-day returns: buy_and_hold (exposure 1.0),
