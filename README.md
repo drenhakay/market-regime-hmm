@@ -36,12 +36,13 @@ and Sharpe uses no risk-free rate.
 
 ```
 regime_hmm.ipynb        full pipeline for the ticker set in its settings cell
-results/                metrics per ticker and exposure map (written by the notebook)
+results/                metrics and detection lags per ticker (written by the notebook)
 src/data.py             data download + causal features
 src/hmm.py              HMM fit, decode, Markov-chain analytics, state selection
 src/backtest.py         walk-forward decode, exposure overlay, baselines, metrics, costs
 src/ticker_pipeline.py  full pipeline for one ticker: states, backtest table, figures
 src/plots.py            figures (saved to figures/ as TICKER_name.png)
+src/events.py           price-only vol episodes, detection lag and false alarms
 src/crosscheck.py       Markov-switching regression cross-check
 src/testing.py          ad-hoc checks (run: python -m src.testing)
 ```
