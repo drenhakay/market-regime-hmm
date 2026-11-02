@@ -1,0 +1,5 @@
+strategy,ann_return,ann_vol,sharpe,sortino,max_dd,dd_duration,annual_turnover,ticker,sharpe_5bps,map
+regime overlay,0.0177,0.0914,0.2381,0.3273,-0.2590,4717,10.2633,FTSE,0.1817,headline
+buy & hold,0.0390,0.1703,0.3103,0.4321,-0.4783,1495,0.0000,FTSE,0.3102,headline
+fixed 60%,0.0268,0.1022,0.3103,0.4321,-0.3095,1335,0.0000,FTSE,0.3102,headline
+vol target,0.0358,0.1794,0.2858,0.3920,-0.4521,2958,4.2868,FTSE,0.2737,headline

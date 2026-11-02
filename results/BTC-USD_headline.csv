@@ -1,0 +1,5 @@
+strategy,ann_return,ann_vol,sharpe,sortino,max_dd,dd_duration,annual_turnover,ticker,sharpe_5bps,map
+regime overlay,0.0757,0.3496,0.3899,0.5463,-0.5533,827,33.0285,BTC-USD,0.3427,headline
+buy & hold,0.4505,0.6718,0.8913,1.3291,-0.8340,1079,0.0000,BTC-USD,0.8912,headline
+fixed 60%,0.3203,0.4031,0.8913,1.3291,-0.6286,1052,0.0000,BTC-USD,0.8912,headline
+vol target,0.3538,0.7449,0.7868,1.1483,-0.8620,853,9.6121,BTC-USD,0.7803,headline

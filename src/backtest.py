@@ -8,7 +8,7 @@ from itertools import groupby
 from src.hmm import fit_hmm, label_states
 from src.data import FEATURE_COLS
 
-TRADING_DAYS = 252
+
 
 
 def _filtered_probs(model, X_seq: np.ndarray, n_past: int) -> np.ndarray:
@@ -121,7 +121,7 @@ def baselines(next_day_ret: pd.Series) -> dict[str, pd.DataFrame]:
 
     daily_ret = next_day_ret.shift(1)                            # return realised on day t, known at the close of t
     trailing_vol = daily_ret.rolling(20).std()
-    target_vol = daily_ret.expanding(min_periods=TRADING_DAYS).std()   # expanding, so no full-sample look-ahead
+    target_vol = daily_ret.expanding(min_periods=days_per_year(next_day_ret.index)).std()   # expanding, so no full-sample look-ahead
     exposure = (target_vol / trailing_vol).clip(upper=1.5)
     strat_ret = exposure * next_day_ret
     equity = (1 + strat_ret).cumprod()
@@ -138,15 +138,16 @@ def metrics(strat_ret: pd.Series, exposure: pd.Series) -> dict:
     assert strat_ret.notna().all(), 'strat_ret contains NaN; restrict() to the OOS window first'
     equity = (1 + strat_ret).cumprod()
     n_days = len(strat_ret)
+    days = days_per_year(strat_ret.index)
 
-    ann_return = equity.iloc[-1] ** (TRADING_DAYS / n_days) - 1
-    ann_vol = strat_ret.std() * np.sqrt(TRADING_DAYS)
+    ann_return = equity.iloc[-1] ** (days / n_days) - 1
+    ann_vol = strat_ret.std() * np.sqrt(days)
     # Sharpe/Sortino use the arithmetic mean (CAGR would penalise higher-vol strategies)
-    ann_mean = strat_ret.mean() * TRADING_DAYS
+    ann_mean = strat_ret.mean() * days
     sharpe = ann_mean / ann_vol
 
     # downside deviation over all days (positive days count as 0)
-    downside_dev = np.sqrt((strat_ret.clip(upper=0) ** 2).mean()) * np.sqrt(TRADING_DAYS)
+    downside_dev = np.sqrt((strat_ret.clip(upper=0) ** 2).mean()) * np.sqrt(days)
     sortino = ann_mean / downside_dev
 
     running_max = equity.cummax().clip(lower=1.0)                # 1.0 is the starting peak
@@ -156,7 +157,7 @@ def metrics(strat_ret: pd.Series, exposure: pd.Series) -> dict:
     runs = [len(list(grp)) for val, grp in groupby(underwater) if val]
     dd_duration = max(runs) if runs else 0
     
-    annual_turnover = exposure.diff().abs().mean() * TRADING_DAYS
+    annual_turnover = exposure.diff().abs().mean() * days
 
     return {
     "ann_return": ann_return, "ann_vol": ann_vol, "sharpe": sharpe,
@@ -221,3 +222,10 @@ def sweep_exposure_maps(states: pd.Series, next_day_ret: pd.Series,
     return pd.DataFrame(rows).set_index('map')
 
 
+def days_per_year(index: pd.DatetimeIndex) -> int:
+    """
+    Calcs avg trading days in a year rounded.
+    """
+    years_spanned = (index[-1] - index[0]).days / 365.25
+    rows_p_year = (len(index) - 1) / years_spanned
+    return round(rows_p_year)
