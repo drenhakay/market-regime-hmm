@@ -14,7 +14,8 @@ FEATURE_COLS: list[str] = ['Return', 'Vol20', 'Range']
 
 
 # end is exclusive in yfinance
-def load_prices(ticker: str = "^GSPC", start: str = "2000-01-01", end: str = "2026-09-10") -> pd.DataFrame:
+def load_prices(ticker: str = "^GSPC", start: str = "2000-01-01",
+                end: str = "2026-09-10") -> pd.DataFrame:
     """
     Download daily OHLC (auto-adjusted) from yfinance; cache to data/ as parquet.
     """

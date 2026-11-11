@@ -5,19 +5,22 @@ from hmmlearn.hmm import GaussianHMM
 from src.data import FEATURE_COLS
 from itertools import groupby
 
-def fit_hmm(X: np.ndarray, n_states: int = 3, seed: int = 0, n_restarts: int = 8):
+def fit_hmm(X: np.ndarray, n_states: int = 3, seed: int = 0, n_restarts: int = 8,
+            stickiness: float = 0.0) -> GaussianHMM:
     """
     Full-covariance GaussianHMM, best of n_restarts seeds.
+    Prior matrix to add stickiness to model, aimed to reduce flipping.
 
     EM is non-convex, so each seed can end at a different optimum; the fitted model with the
     highest log-likelihood on X is the one returned.
     """
     fits = []
+    prior = np.ones((n_states, n_states)) + stickiness * np.identity(n_states)
     for i in range(n_restarts):
         random_state = seed + i
         try:
             model = GaussianHMM(n_components=n_states, covariance_type="full", n_iter=200,
-                                random_state=random_state)
+                                random_state=random_state, transmat_prior=prior)
             model.fit(X)
             fits.append((model.score(X), model))
         except (ValueError, np.linalg.LinAlgError):
@@ -27,7 +30,7 @@ def fit_hmm(X: np.ndarray, n_states: int = 3, seed: int = 0, n_restarts: int = 8
     return max(fits, key=lambda x: x[0])[1]
 
 
-def label_states(model) -> dict[int, int]:
+def label_states(model: GaussianHMM) -> dict[int, int]:
     """
     Mapping {raw_state: ranked_state}, with states ordered by mean Vol20 (0 = calmest,
     n-1 = most volatile). Raw state ids are arbitrary and can permute between fits.
@@ -39,7 +42,7 @@ def label_states(model) -> dict[int, int]:
     return mapping
 
 
-def decode(model, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def decode(model: GaussianHMM, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Viterbi path and posteriors: the most likely state sequence and the per-day
     forward-backward state probabilities. Both use the whole series, so they are for
@@ -50,7 +53,7 @@ def decode(model, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return viterbi_path, posteriors
 
 
-def transition_report(model, viterbi_path: np.ndarray) -> dict:
+def transition_report(model: GaussianHMM, viterbi_path: np.ndarray) -> dict:
     """
     Markov-chain summary of the fitted model, with states in vol-rank order.
 
@@ -68,7 +71,8 @@ def transition_report(model, viterbi_path: np.ndarray) -> dict:
 
     implied_dwell = 1 / (1- np.diag(p))
 
-    ranked_path = np.argsort(order)[viterbi_path]                # inverse permutation: raw state -> vol rank
+    # inverse permutation: raw state -> vol rank
+    ranked_path = np.argsort(order)[viterbi_path]
 
     runs = [(state, len(list(grp))) for state, grp in groupby(ranked_path)]
 
@@ -89,7 +93,8 @@ def _n_params(K: int, d: int) -> int:
     covs = K * d * (d + 1) // 2
     return trans + start + means + covs
 
-def select_n_states(X: np.ndarray, train_end: int, candidates=(2, 3, 4, 5)) -> list[dict]:
+def select_n_states(X: np.ndarray, train_end: int,
+                    candidates: tuple[int, ...] = (2, 3, 4, 5)) -> list[dict]:
     """
     State-count comparison: one row per candidate n, fit on X[:train_end], with the BIC and
     the out-of-sample log-likelihood on X[train_end:].

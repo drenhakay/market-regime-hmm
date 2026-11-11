@@ -12,7 +12,8 @@ HEADLINE_MAP = {0: 1.0, 1: 0.5, 2: 0.0}
 
 
 def hmm_pipeline(ticker: str = '^GSPC', min_train: int = 1000, step: int = 21, n_states: int = 3,
-                 exposure_map: dict = HEADLINE_MAP, plots: bool = True) -> dict:
+                 exposure_map: dict = HEADLINE_MAP, plots: bool = True,
+                 stickiness: float = 0.0) -> dict:
     """
     Full pipeline for a given ticker: walk-forward states, overlay vs baselines, full-sample fit.
 
@@ -25,11 +26,14 @@ def hmm_pipeline(ticker: str = '^GSPC', min_train: int = 1000, step: int = 21, n
     clean = clean_ticker(ticker)
 
     # ticker and settings in name to distinguish and reuse
-    cache = DATA_DIR / f'{clean}_wf_states_{min_train}_{step}_{n_states}.parquet'
+    # stickiness 0 keeps the original name, so existing caches still load
+    sticky = f'_s{stickiness:g}' if stickiness > 0 else ''
+    cache = DATA_DIR / f'{clean}_wf_states_{min_train}_{step}_{n_states}{sticky}.parquet'
     if cache.exists():
         frame = pd.read_parquet(cache)
     else:
-        frame = walk_forward_states(X, dates, min_train=min_train, step=step, n_states=n_states)
+        frame = walk_forward_states(X, dates, min_train=min_train, step=step, n_states=n_states,
+                                    stickiness=stickiness)
         frame.to_parquet(cache)
     assert frame.index.equals(dates[min_train:]), 'stale cache: delete it and re-run'
     states = frame['state']
@@ -48,7 +52,7 @@ def hmm_pipeline(ticker: str = '^GSPC', min_train: int = 1000, step: int = 21, n
     leakage_check(states, next_day_ret, exposure_map)
 
     # full sample fit for interpretation only, nothing in backtest uses it
-    model = fit_hmm(X, n_states)
+    model = fit_hmm(X, n_states, stickiness=stickiness)
     mapping = label_states(model)                           # raw state -> vol rank
     viterbi, _ = decode(model, X)
     lut = np.array([mapping[k] for k in range(n_states)])

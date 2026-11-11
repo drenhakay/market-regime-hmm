@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from hmmlearn.hmm import GaussianHMM
 from scipy.special import logsumexp
 from itertools import groupby
 
@@ -11,14 +12,15 @@ from src.data import FEATURE_COLS
 
 
 
-def _filtered_probs(model, X_seq: np.ndarray, n_past: int) -> np.ndarray:
+def _filtered_probs(model: GaussianHMM, X_seq: np.ndarray, n_past: int) -> np.ndarray:
     """
     Forward filter: the state at row i uses only rows 0..i (no backward pass).
 
     One log-space forward pass over X_seq; returns P(state | rows 0..i).
     """
     framelogprob = model._compute_log_likelihood(X_seq)          # (T, K) emission log-probs
-    with np.errstate(divide='ignore'):                           # zero probs give -inf, which is fine
+    # zero probs give -inf, which is fine
+    with np.errstate(divide='ignore'):
         log_startprob = np.log(model.startprob_)
         log_transmat = np.log(model.transmat_)
 
@@ -32,7 +34,9 @@ def _filtered_probs(model, X_seq: np.ndarray, n_past: int) -> np.ndarray:
     return np.exp(alpha[n_past:] - logsumexp(alpha[n_past:], axis=1, keepdims=True))
 
 
-def walk_forward_states(X, dates, min_train=1000, step=21, n_states=3) -> pd.DataFrame:
+def walk_forward_states(X: np.ndarray, dates: pd.DatetimeIndex, min_train: int = 1000,
+                        step: int = 21, n_states: int = 3,
+                        stickiness: float = 0.0) -> pd.DataFrame:
     """
     Expanding-window walk-forward state inference.
 
@@ -45,16 +49,18 @@ def walk_forward_states(X, dates, min_train=1000, step=21, n_states=3) -> pd.Dat
     t = min_train
     r = FEATURE_COLS.index('Return')
     while t < len(X):
-        model = fit_hmm(X[:t], n_states=n_states)
+        model = fit_hmm(X[:t], n_states=n_states, stickiness=stickiness)
         mapping = label_states(model)                            # raw -> vol rank, this fit
         end = min(t + step, len(X))
         # one forward pass over past + new block; filtered probs for days t..end-1
         probs = _filtered_probs(model, X[:end], n_past=t)
-        lut = np.array([mapping[k] for k in range(n_states)])    # same mapping as an array, for indexing
+        # same mapping as an array, for indexing
+        lut = np.array([mapping[k] for k in range(n_states)])
         order = np.argsort(lut)                                  # rank -> raw column
         ranked = probs[:, order]
         state = ranked.argmax(axis=1)
-        weights = probs @ model.transmat_                        # P(state tomorrow | data to today), raw order
+        # P(state tomorrow | data to today), raw order
+        weights = probs @ model.transmat_
         mu_k = model.means_[:, r]
         var_k = model.covars_[:, r, r]
         mu = weights @ mu_k
@@ -112,20 +118,24 @@ def baselines(next_day_ret: pd.Series) -> dict[str, pd.DataFrame]:
     exposure = pd.Series(1.0, index=next_day_ret.index)
     strat_ret = exposure * next_day_ret
     equity = (1 + strat_ret).cumprod()
-    out['buy_and_hold'] = pd.DataFrame({'exposure': exposure, 'strat_ret': strat_ret, 'equity': equity})
+    out['buy_and_hold'] = pd.DataFrame({'exposure': exposure, 'strat_ret': strat_ret,
+                                        'equity': equity})
 
     exposure = pd.Series(0.6, index=next_day_ret.index)
     strat_ret = exposure * next_day_ret
     equity = (1 + strat_ret).cumprod()
     out['fixed_60'] = pd.DataFrame({'exposure': exposure, 'strat_ret': strat_ret, 'equity': equity})
 
-    daily_ret = next_day_ret.shift(1)                            # return realised on day t, known at the close of t
+    # return realised on day t, known at the close of t
+    daily_ret = next_day_ret.shift(1)
     trailing_vol = daily_ret.rolling(20).std()
-    target_vol = daily_ret.expanding(min_periods=days_per_year(next_day_ret.index)).std()   # expanding, so no full-sample look-ahead
+    # expanding, so no full-sample look-ahead
+    target_vol = daily_ret.expanding(min_periods=days_per_year(next_day_ret.index)).std()
     exposure = (target_vol / trailing_vol).clip(upper=1.5)
     strat_ret = exposure * next_day_ret
     equity = (1 + strat_ret).cumprod()
-    out['vol_target'] = pd.DataFrame({'exposure': exposure, 'strat_ret': strat_ret, 'equity': equity})
+    out['vol_target'] = pd.DataFrame({'exposure': exposure, 'strat_ret': strat_ret,
+                                      'equity': equity})
     return out
 
 
@@ -156,7 +166,7 @@ def metrics(strat_ret: pd.Series, exposure: pd.Series) -> dict:
     underwater = drawdown < 0
     runs = [len(list(grp)) for val, grp in groupby(underwater) if val]
     dd_duration = max(runs) if runs else 0
-    
+
     annual_turnover = exposure.diff().abs().mean() * days
 
     return {
@@ -174,13 +184,14 @@ def leakage_check(states: pd.Series, next_day_ret: pd.Series, exposure_map: dict
     """
     honest = overlay(states, next_day_ret, exposure_map)
     honest_metrics = metrics(honest['strat_ret'], honest['exposure'])
-    
+
     cheat_states = states.shift(-1)
     cheat_states.dropna(inplace=True)
     cheat = overlay(cheat_states, next_day_ret, exposure_map)
     cheat_metrics = metrics(cheat['strat_ret'], cheat['exposure'])
-    
-    print(f"honest Sharpe {honest_metrics['sharpe']:.3f} | shifted Sharpe {cheat_metrics['sharpe']:.3f}")
+
+    print(f"honest Sharpe {honest_metrics['sharpe']:.3f} | "
+          f"shifted Sharpe {cheat_metrics['sharpe']:.3f}")
     if cheat_metrics['sharpe'] <= honest_metrics['sharpe']:
         print('Warning: Potential look-ahead detected')
     else:

@@ -62,7 +62,8 @@ def check_buy_and_hold_matches_price() -> None:
     # equity after row i's next-day return is close[i+1] / close[first row]
     close = prices["Close"]
     expected = close.shift(-1).loc[dates] / close.loc[dates[0]]
-    assert np.allclose(equity, expected, rtol=1e-9, atol=0), "buy & hold equity drifts from the price ratio"
+    assert np.allclose(equity, expected, rtol=1e-9, atol=0), \
+        "buy & hold equity drifts from the price ratio"
     print("buy & hold equity matches the price ratio")
 
 

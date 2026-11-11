@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from statsmodels.tsa.regime_switching.markov_regression import MarkovRegression
+from statsmodels.tsa.regime_switching.markov_regression import (MarkovRegression,
+                                                                MarkovRegressionResults)
 
 
-def fit_markov_switching(returns: pd.Series, k_regimes: int = 3):
+def fit_markov_switching(returns: pd.Series, k_regimes: int = 3) -> MarkovRegressionResults:
     """
     MarkovRegression on the 100x log return with switching mean and variance.
     """
@@ -15,11 +16,12 @@ def fit_markov_switching(returns: pd.Series, k_regimes: int = 3):
     # seeded restarts; the default 100 iterations can stop short of convergence
     res = model.fit(search_reps=20, maxiter=500, rng=0)
     if not res.mle_retvals.get("converged", False):
-        raise RuntimeError("Markov-switching fit did not converge; try k_regimes=2 or more restarts")
+        raise RuntimeError("Markov-switching fit did not converge; "
+                           "try k_regimes=2 or more restarts")
     return res
 
 
-def ranked_regime_path(res, index: pd.Index) -> pd.Series:
+def ranked_regime_path(res: MarkovRegressionResults, index: pd.Index) -> pd.Series:
     """
     Most likely regime per day (smoothed, full-sample), relabelled 0 = lowest variance.
     """

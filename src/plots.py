@@ -19,7 +19,8 @@ SURFACE, INK, INK_2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e6e5e1"
 # fixed colour per strategy across figures
 STRATEGY_COLORS = {"regime overlay": "#2a78d6", "buy & hold": "#eb6834",
                    "fixed 60%": "#1baf7a", "vol target": "#eda100"}
-# opaque pale tints, cool to hot (calm blue, choppy amber, crisis red), light enough for the price line
+# opaque pale tints, cool to hot (calm blue, choppy amber, crisis red), light enough for the
+# price line
 REGIME_COLORS = ["#cde2fb", "#f7d27a", "#e7837f"]
 
 
@@ -82,7 +83,8 @@ def plot_regime_price(prices: pd.DataFrame, dates: pd.DatetimeIndex,
     ax.legend(handles=[Patch(facecolor=c, label=l) for c, l in zip(REGIME_COLORS, REGIME_LABELS)],
               loc="upper left", frameon=True, facecolor=SURFACE, edgecolor="none", framealpha=1,
               labelcolor=INK_2, fontsize=9, title="regime", title_fontsize=9)
-    ax.set_title(ticker + ' ' + "by inferred regime (full-sample Viterbi)", loc="left", color=INK, fontsize=12)
+    ax.set_title(ticker + ' ' + "by inferred regime (full-sample Viterbi)", loc="left", color=INK,
+                 fontsize=12)
     ax.set_ylabel("price (log)", color=INK_2, fontsize=9)
     _save(fig, "regime_price.png", ticker)
     return fig
@@ -126,7 +128,8 @@ def plot_drawdowns(results: dict[str, pd.DataFrame], ticker: str = '^GSPC') -> p
     _style(ax)
     for i, (name, r) in enumerate(rets.items()):
         eq = (1 + r).cumprod()
-        dd = eq / eq.cummax().clip(lower=1.0) - 1                # peak starts at 1.0, as in metrics()
+        # peak starts at 1.0, as in metrics()
+        dd = eq / eq.cummax().clip(lower=1.0) - 1
         color = STRATEGY_COLORS.get(name, INK_2)
         ax.plot(dd.index, dd.values * 100, lw=1.4, color=color, label=f"{name} ({dd.min():.1%})")
         if i == 0:
@@ -139,7 +142,8 @@ def plot_drawdowns(results: dict[str, pd.DataFrame], ticker: str = '^GSPC') -> p
     return fig
 
 
-def plot_transition_heatmap(P: np.ndarray, labels: list[str] = REGIME_LABELS, ticker: str = '^GSPC') -> plt.Figure:
+def plot_transition_heatmap(P: np.ndarray, labels: list[str] = REGIME_LABELS,
+                            ticker: str = '^GSPC') -> plt.Figure:
     """
     Annotated heatmap of the ranked transition matrix (rows = from, columns = to).
     """
