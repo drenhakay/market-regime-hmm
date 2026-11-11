@@ -49,9 +49,7 @@ before one.
 On Treasuries and Bitcoin the high-volatility state also holds rallies: bond volatility rises in
 flight-to-safety rallies (2008, 2020) and Bitcoin's 2017 and 2021 run-ups were volatile. Two of
 the three features (volatility and range) ignore the sign of a move, so the model cannot tell a
-crash from a rebound, which is also why exits are slow. The next stage tests return-aware
-features (downside deviation, drawdown from the one-year high) to separate falls from
-recoveries.
+crash from a rebound, which is also why exits are slow.
 
 ## Exposure overlay (a yardstick, not the goal)
 

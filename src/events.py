@@ -128,3 +128,73 @@ def false_alarms(wf_states: pd.Series, bench: pd.Series, warn: int = 10,
                   'early_warning': early_warning, 'false_alarm': false_alarm, 'flip': flip}
         rows.append(values)
     return pd.DataFrame(rows)
+
+
+def fall_recovery(states: pd.Series, probs: pd.DataFrame, bench: pd.Series,
+                  close: pd.Series) -> pd.DataFrame:
+    """
+    One row per benchmark episode in the walk-forward period, split at its lowest close: the
+    fall runs from the start to the trough (trough included), the recovery from the next day to
+    the end.
+
+    For each phase: its length in trading days, the share of days in the crisis state and the
+    mean filtered P(crisis). An empty recovery (trough on the last day) gives NaN.
+    """
+    wf_frame = probs.assign(state=states)
+    bench_cut = bench.loc[wf_frame.index]
+    episodes = spells(bench_cut, 2)
+    rows = []
+    for ep in episodes.itertuples():
+        close_vals = close.loc[ep.start : ep.end]
+        min_close_idx = close_vals.idxmin()
+        fall_rows = wf_frame.loc[ep.start : min_close_idx]
+        recov_rows = wf_frame[(wf_frame.index > min_close_idx) & (wf_frame.index <= ep.end)]
+        fall_len = len(fall_rows)
+        recov_len = len(recov_rows)
+        fall_crisis = (fall_rows['state'] == 2).mean()
+        recov_crisis = (recov_rows['state'] == 2).mean()
+        fall_p = fall_rows['p2'].mean()
+        recov_p = recov_rows['p2'].mean()
+        temp_dict = {'start': ep.start, 'trough': min_close_idx, 'end': ep.end,
+                     'fall_length': fall_len, 'recov_length': recov_len,
+                     'fall_crisis_share': fall_crisis, 'recov_crisis_share': recov_crisis,
+                     'fall_p': fall_p, 'recov_p': recov_p}
+        rows.append(temp_dict)
+    return pd.DataFrame(rows)
+
+
+def threshold_states(measure: pd.Series, q: float = 0.9, min_periods: int = 1000) -> pd.Series:
+    """
+    Threshold detector: 2 on a day measured above q quantile on past values (expanding window),
+    0 otherwise. Days before min_periods have 0 as value.
+    """
+    threshold = measure.expanding(min_periods=min_periods).quantile(q).shift(1)
+    states = (measure > threshold) * 2
+    return states
+    
+
+def alert_summary(states: pd.Series, bench: pd.Series) -> pd.Series:
+    """
+    One detector's scorecard against the benchmark: episodes, missed, entry and exit lags,
+    crisis spells by class, flips and the false-alarm share of crisis days. Works for any
+    0/2 states (the HMM or a rival rule).
+    """
+    lags = entry_exit_lags(states, bench)
+    fa = false_alarms(states, bench)
+    # medians skip missed episodes (NaN lags); shared episodes reuse one model spell
+    unshared = lags[~lags['shared']]
+    return pd.Series({
+        'episodes': len(lags),
+        'missed': int(lags['missed'].sum()),
+        'median entry lag': lags['entry_lag'].median(),
+        'median entry lag (not shared)': unshared['entry_lag'].median(),
+        'median exit lag': lags['exit_lag'].median(),
+        'median exit lag (not shared)': unshared['exit_lag'].median(),
+        'model crisis spells': len(fa),
+        'real calls': int(fa['overlaps'].sum()),
+        'early warnings': int(fa['early_warning'].sum()),
+        'false alarms': int(fa['false_alarm'].sum()),
+        'flips': int(fa['flip'].sum()),
+        'false-alarm share of crisis days': round(fa.loc[fa['false_alarm'], 'length'].sum()
+                                                  / fa['length'].sum(), 3),
+    }, dtype=object)
