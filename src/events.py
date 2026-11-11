@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import pandas as pd
 import numpy as np
+from sklearn.isotonic import IsotonicRegression
+
+from src.data import build_features
 
 
 def spells(states: pd.Series, value: int) -> pd.DataFrame:
@@ -171,7 +174,7 @@ def threshold_states(measure: pd.Series, q: float = 0.9, min_periods: int = 1000
     threshold = measure.expanding(min_periods=min_periods).quantile(q).shift(1)
     states = (measure > threshold) * 2
     return states
-    
+
 
 def alert_summary(states: pd.Series, bench: pd.Series) -> pd.Series:
     """
@@ -198,3 +201,66 @@ def alert_summary(states: pd.Series, bench: pd.Series) -> pd.Series:
         'false-alarm share of crisis days': round(fa.loc[fa['false_alarm'], 'length'].sum()
                                                   / fa['length'].sum(), 3),
     }, dtype=object)
+
+
+def spell_starts(states: pd.Series, bench: pd.Series, prices: pd.DataFrame,
+                 min_periods: int = 1000) -> pd.DataFrame:
+    """
+    One row per crisis spell, indexed by start date. The type of spell, real, flip or
+    long_false, is under group. Spike and shock compare the first day's range and absolute
+    return with the previous 60 days, calm_before is whether Vol20 the day before was under
+    its expanding 75th percentile, next is the following day's range over the same baseline.
+
+    Day t jump needs spike >= 2 and calm_before.
+    Jump day needs next < 1.5 and depends on day_t_jump.
+    """
+    false_a = false_alarms(states, bench)
+    false_a = false_a[~false_a['early_warning']]
+    real = false_a['overlaps']
+    flip = false_a['false_alarm'] & false_a['flip']
+    long_false = false_a['false_alarm'] & ~false_a['flip']
+    false_a['group'] = np.select([real, flip, long_false], ['real', 'flip', 'long_false'],
+                                 default='other')
+
+    dailies = build_features(prices)
+    dailies['usual_range'] = dailies['Range'].rolling(60).median().shift(1)
+    dailies['usual_return'] = dailies['Return'].rolling(60).std().shift(1)
+    dailies['vol20_threshold'] = (dailies['Vol20'].expanding(min_periods=min_periods)
+                                  .quantile(0.75).shift(1))
+    dailies['spike'] = dailies['Range'] / dailies['usual_range']
+    dailies['shock'] = dailies['Return'].abs() / dailies['usual_return']
+    dailies['calm_before'] = dailies['Vol20'].shift(1) < dailies['vol20_threshold']
+    dailies['next'] = dailies['Range'].shift(-1) / dailies['usual_range']
+
+    false_a = false_a.set_index('start')
+    false_a = false_a.join(dailies[['spike', 'shock', 'calm_before', 'next']], how='left')
+    false_a['day_t_jump'] = (false_a['spike'] >= 2) & false_a['calm_before']
+    false_a['jump_day'] = false_a['day_t_jump'] & (false_a['next'] < 1.5)
+    return false_a
+
+
+def reliability(probs: pd.Series, outcome: pd.Series,
+                bins: tuple = (0, 0.01, 0.1, 0.5, 0.9, 0.99, 1)) -> pd.DataFrame:
+    """
+    Reliability table for probabilities against what happened. One row per bin of probs.
+    Number of days, mean probability and observed share are columns. Gap is observed minus mean_p,
+    negative where the probabilities were overconfident.
+    """
+    intervals = pd.cut(probs, bins=bins, include_lowest=True)
+    day_data = pd.DataFrame({'probs': probs, 'outcome': outcome})
+    table = day_data.groupby(intervals, observed=False).agg(days=('probs', 'size'),
+                                                            mean_p=('probs', 'mean'),
+                                                            observed=('outcome', 'mean'))
+    table['gap'] = table['observed'] - table['mean_p']
+    return table
+
+
+def recalibrate(p_fit: pd.Series, y_fit: pd.Series, p_apply: pd.Series) -> pd.Series:
+    """
+    Isotonic map from raw probabilities to calibrated ones. Learned on p_fit against y_fit,
+    then applied to p_apply.
+    """
+    model = IsotonicRegression(y_min=0, y_max=1, increasing=True, out_of_bounds='clip')
+    model.fit(p_fit, y_fit)
+    results = model.predict(p_apply)
+    return pd.Series(results, index=p_apply.index)
