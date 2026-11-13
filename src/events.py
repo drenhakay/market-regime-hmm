@@ -7,15 +7,15 @@ from sklearn.isotonic import IsotonicRegression
 from src.data import build_features
 
 
-def spells(states: pd.Series, value: int) -> pd.DataFrame:
+def spells(flags: pd.Series) -> pd.DataFrame:
     """
-    Unbroken runs where states equal value: one row per run with start, end and length.
+    Unbroken runs where flags is True: one row per run with start, end and length.
     """
-    run_id = (states != states.shift()).cumsum()
-    frame = pd.DataFrame({'states': states, 'date': states.index})
+    run_id = (flags != flags.shift()).cumsum()
+    frame = pd.DataFrame({'states': flags, 'date': flags.index})
     runs = frame.groupby(run_id).agg(states=('states', 'first'), start=('date', 'min'),
                                      end=('date', 'max'), length=('date', 'size'))
-    spell = runs[runs['states'] == value].drop(columns='states').reset_index(drop=True)
+    spell = runs[runs['states']].drop(columns='states').reset_index(drop=True)
     return spell
 
 
@@ -23,7 +23,7 @@ def vol_episodes(prices: pd.DataFrame, q: float = 0.9, window: int = 11, min_len
                  pad: int = 5) -> pd.Series:
     """
     Crisis benchmark from prices alone, using a hybrid of smoothed and daily Parkinson vol:
-    2 on days in a high-vol episode, 0 otherwise.
+    True on days in a high-vol episode, False otherwise.
 
     The centred smoothed vol finds episodes (min_len+ days above its q quantile); the daily vol
     sets each start and end within pad days of the smoothed ones. Gaps of pad days or fewer
@@ -34,8 +34,8 @@ def vol_episodes(prices: pd.DataFrame, q: float = 0.9, window: int = 11, min_len
     daily = np.sqrt(np.log(high / low) ** 2 / (4 * np.log(2)))
     smoothed = daily.rolling(window, center=True).mean()
     threshold = smoothed.quantile(q)
-    states = (smoothed > threshold) * 2
-    spell = spells(states, 2)
+    above = smoothed > threshold
+    spell = spells(above)
     qualifying = spell[spell['length'] >= min_len].reset_index(drop=True)
     episodes = []
     for ep in qualifying.itertuples():
@@ -48,19 +48,19 @@ def vol_episodes(prices: pd.DataFrame, q: float = 0.9, window: int = 11, min_len
         start = search.index[0]
         end = search.index[-1]
         episodes.append((start, end))
-    episode_states = pd.Series(0, index=prices.index)
+    episode_states = pd.Series(False, index=prices.index)
     for start, end in episodes:
-        episode_states.loc[start:end] = 2
-    calm = spells(episode_states, 0)
+        episode_states.loc[start:end] = True
+    calm = spells(~episode_states)
     gaps = calm[(calm['length'] <= pad)
                 & (calm['start'] != episode_states.index[0])
                 & (calm['end'] != episode_states.index[-1])]
     for g in gaps.itertuples():
-        episode_states.loc[g.start : g.end] = 2
+        episode_states.loc[g.start : g.end] = True
     return episode_states
 
 
-def entry_exit_lags(wf_states: pd.Series, bench: pd.Series) -> pd.DataFrame:
+def entry_exit_lags(alerts: pd.Series, bench: pd.Series) -> pd.DataFrame:
     """
     One row per benchmark episode in the walk-forward period: when the model entered and left
     the crisis state around it.
@@ -68,9 +68,9 @@ def entry_exit_lags(wf_states: pd.Series, bench: pd.Series) -> pd.DataFrame:
     Lags are model minus benchmark in trading days (negative = early, positive = late). An episode
     no model crisis spell overlaps is missed, with lags and dates left as NaN.
     """
-    bench_cut = bench.loc[wf_states.index]
-    episodes = spells(bench_cut, 2)
-    model = spells(wf_states, 2)
+    bench_cut = bench.loc[alerts.index]
+    episodes = spells(bench_cut)
+    model = spells(alerts)
     rows = []
     for ep in episodes.itertuples():
         overlap = model[(model['end'] >= ep.start) & (model['start'] <= ep.end)]
@@ -83,10 +83,10 @@ def entry_exit_lags(wf_states: pd.Series, bench: pd.Series) -> pd.DataFrame:
                                 & (episodes['end'] >= last['start'])]
             detected = overlap['start'].iloc[0]
             model_exit = overlap['end'].iloc[-1]
-            start_pos = wf_states.index.get_loc(ep.start)
-            det_pos = wf_states.index.get_loc(detected)
-            end_pos = wf_states.index.get_loc(ep.end)
-            exit_pos = wf_states.index.get_loc(model_exit)
+            start_pos = alerts.index.get_loc(ep.start)
+            det_pos = alerts.index.get_loc(detected)
+            end_pos = alerts.index.get_loc(ep.end)
+            exit_pos = alerts.index.get_loc(model_exit)
             entry_lag = det_pos - start_pos
             exit_lag = exit_pos - end_pos
             missed = False
@@ -105,7 +105,7 @@ def entry_exit_lags(wf_states: pd.Series, bench: pd.Series) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def false_alarms(wf_states: pd.Series, bench: pd.Series, warn: int = 10,
+def false_alarms(alerts: pd.Series, bench: pd.Series, warn: int = 10,
                  flip_len: int = 5) -> pd.DataFrame:
     """
     One row per walk-forward crisis spell, classed as exactly one of: overlaps (touches a
@@ -114,15 +114,15 @@ def false_alarms(wf_states: pd.Series, bench: pd.Series, warn: int = 10,
 
     flip marks spells of flip_len trading days or fewer, whatever their class.
     """
-    bench_cut = bench.loc[wf_states.index]
-    episodes = spells(bench_cut, 2)
-    model = spells(wf_states, 2)
-    ep_start_pos = wf_states.index.get_indexer(episodes['start'])
+    bench_cut = bench.loc[alerts.index]
+    episodes = spells(bench_cut)
+    model = spells(alerts)
+    ep_start_pos = alerts.index.get_indexer(episodes['start'])
     rows = []
     for sp in model.itertuples():
         touching = episodes[(episodes['start'] <= sp.end) & (episodes['end'] >= sp.start)]
         overlaps = len(touching) > 0
-        end_pos = wf_states.index.get_loc(sp.end)
+        end_pos = alerts.index.get_loc(sp.end)
         gap = ep_start_pos - end_pos
         early_warning = not overlaps and ((gap >= 1) & (gap <= warn)).any()
         false_alarm = not overlaps and not early_warning
@@ -133,7 +133,7 @@ def false_alarms(wf_states: pd.Series, bench: pd.Series, warn: int = 10,
     return pd.DataFrame(rows)
 
 
-def fall_recovery(states: pd.Series, probs: pd.DataFrame, bench: pd.Series,
+def fall_recovery(alerts: pd.Series, p_crisis: pd.Series, bench: pd.Series,
                   close: pd.Series) -> pd.DataFrame:
     """
     One row per benchmark episode in the walk-forward period, split at its lowest close: the
@@ -143,9 +143,9 @@ def fall_recovery(states: pd.Series, probs: pd.DataFrame, bench: pd.Series,
     For each phase: its length in trading days, the share of days in the crisis state and the
     mean filtered P(crisis). An empty recovery (trough on the last day) gives NaN.
     """
-    wf_frame = probs.assign(state=states)
+    wf_frame = pd.DataFrame({'alert': alerts, 'p_crisis': p_crisis})
     bench_cut = bench.loc[wf_frame.index]
-    episodes = spells(bench_cut, 2)
+    episodes = spells(bench_cut)
     rows = []
     for ep in episodes.itertuples():
         close_vals = close.loc[ep.start : ep.end]
@@ -154,10 +154,10 @@ def fall_recovery(states: pd.Series, probs: pd.DataFrame, bench: pd.Series,
         recov_rows = wf_frame[(wf_frame.index > min_close_idx) & (wf_frame.index <= ep.end)]
         fall_len = len(fall_rows)
         recov_len = len(recov_rows)
-        fall_crisis = (fall_rows['state'] == 2).mean()
-        recov_crisis = (recov_rows['state'] == 2).mean()
-        fall_p = fall_rows['p2'].mean()
-        recov_p = recov_rows['p2'].mean()
+        fall_crisis = fall_rows['alert'].mean()
+        recov_crisis = recov_rows['alert'].mean()
+        fall_p = fall_rows['p_crisis'].mean()
+        recov_p = recov_rows['p_crisis'].mean()
         temp_dict = {'start': ep.start, 'trough': min_close_idx, 'end': ep.end,
                      'fall_length': fall_len, 'recov_length': recov_len,
                      'fall_crisis_share': fall_crisis, 'recov_crisis_share': recov_crisis,
@@ -168,22 +168,22 @@ def fall_recovery(states: pd.Series, probs: pd.DataFrame, bench: pd.Series,
 
 def threshold_states(measure: pd.Series, q: float = 0.9, min_periods: int = 1000) -> pd.Series:
     """
-    Threshold detector: 2 on a day measured above q quantile on past values (expanding window),
-    0 otherwise. Days before min_periods have 0 as value.
+    Threshold detector: True on a day measured above q quantile on past values (expanding
+    window), False otherwise. Days before min_periods are False.
     """
     threshold = measure.expanding(min_periods=min_periods).quantile(q).shift(1)
-    states = (measure > threshold) * 2
+    states = measure > threshold
     return states
 
 
-def alert_summary(states: pd.Series, bench: pd.Series) -> pd.Series:
+def alert_summary(alerts: pd.Series, bench: pd.Series) -> pd.Series:
     """
     One detector's scorecard against the benchmark: episodes, missed, entry and exit lags,
     crisis spells by class, flips and the false-alarm share of crisis days. Works for any
-    0/2 states (the HMM or a rival rule).
+    True/False alerts (the HMM or a rival rule).
     """
-    lags = entry_exit_lags(states, bench)
-    fa = false_alarms(states, bench)
+    lags = entry_exit_lags(alerts, bench)
+    fa = false_alarms(alerts, bench)
     # medians skip missed episodes (NaN lags); shared episodes reuse one model spell
     unshared = lags[~lags['shared']]
     return pd.Series({
@@ -203,7 +203,49 @@ def alert_summary(states: pd.Series, bench: pd.Series) -> pd.Series:
     }, dtype=object)
 
 
-def spell_starts(states: pd.Series, bench: pd.Series, prices: pd.DataFrame,
+def seed_scorecard(runs: dict[int, pd.Series], bench: pd.Series, start=None,
+                   end=None) -> tuple[pd.DataFrame, pd.DataFrame, float]:
+    """
+    Scorecard for a model refit with several restart seed sets. Used to score new features and
+    changes.
+    """
+    seeds = {}
+    lags = {}
+    crisis = {}
+    for seed, states in runs.items():
+        if start is not None:
+            states = states[states.index >= start]
+        if end is not None:
+            states = states[states.index < end]
+        years = (states.index[-1] - states.index[0]).days / 365.25
+        summary = alert_summary(states, bench)
+        fa = false_alarms(states, bench)
+
+        lags[seed] = entry_exit_lags(states, bench).set_index('start')['entry_lag']
+        crisis[seed] = states
+
+        seed_dict = {
+            'missed': summary['missed'],
+            'median entry': summary['median entry lag'],
+            'false alarms per year': summary['false alarms'] / years,
+            'false-alarm days per year': fa.loc[fa['false_alarm'], 'length'].sum() / years,
+            'flips per year': summary['flips'] / years,
+            'crisis %': states.mean() * 100
+        }
+        seeds[seed] = seed_dict
+
+    df = pd.DataFrame.from_dict(seeds, orient='index')
+    r = df.max() - df.min()
+    mu = df.mean()
+    df.loc['range'] = r
+    df.loc['mean'] = mu
+
+    disagreement = (pd.DataFrame(crisis).nunique(axis=1) > 1).mean() * 100
+    lag_p_ep = pd.DataFrame(lags).T
+    return df, lag_p_ep, disagreement
+
+
+def spell_starts(alerts: pd.Series, bench: pd.Series, prices: pd.DataFrame,
                  min_periods: int = 1000) -> pd.DataFrame:
     """
     One row per crisis spell, indexed by start date. The type of spell, real, flip or
@@ -214,7 +256,7 @@ def spell_starts(states: pd.Series, bench: pd.Series, prices: pd.DataFrame,
     Day t jump needs spike >= 2 and calm_before.
     Jump day needs next < 1.5 and depends on day_t_jump.
     """
-    false_a = false_alarms(states, bench)
+    false_a = false_alarms(alerts, bench)
     false_a = false_a[~false_a['early_warning']]
     real = false_a['overlaps']
     flip = false_a['false_alarm'] & false_a['flip']

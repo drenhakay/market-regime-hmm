@@ -18,8 +18,9 @@ def hmm_pipeline(ticker: str = '^GSPC', min_train: int = 1000, step: int = 21, n
     Full pipeline for a given ticker: walk-forward states, overlay vs baselines, full-sample fit.
 
     Walk-forward states are cached in data/ per ticker and settings. Figures are saved to figures/
-    only when plots is True. Returns a dict with the metrics table, states, results, regime shares,
-    state table, transition report and full-sample ranked states.
+    only when plots is True. Returns a dict with the metrics table, states, crisis alerts (top
+    state) and P(crisis), results, regime shares, state table, transition report and
+    full-sample ranked states.
     """
     prices = load_prices(ticker)
     X, dates, next_day_ret = emissions(prices)
@@ -37,7 +38,12 @@ def hmm_pipeline(ticker: str = '^GSPC', min_train: int = 1000, step: int = 21, n
         frame.to_parquet(cache)
     assert frame.index.equals(dates[min_train:]), 'stale cache: delete it and re-run'
     states = frame['state']
-    regime_share = states.map({0: 'calm', 1: 'choppy', 2: 'crisis'}).value_counts(normalize=True)
+    # crisis is the top vol-ranked state, whatever n_states is
+    alerts = states == n_states - 1
+    p_crisis = frame[f'p{n_states - 1}']
+    # names exist for 3 states only; other counts keep their rank numbers
+    names = ['calm', 'choppy', 'crisis'] if n_states == 3 else list(range(n_states))
+    regime_share = states.map(dict(enumerate(names))).value_counts(normalize=True)
 
     res_overlay = overlay(states, next_day_ret, exposure_map)
     # baselines use the full history for warm-up, then get cut to the OOS days
@@ -60,8 +66,7 @@ def hmm_pipeline(ticker: str = '^GSPC', min_train: int = 1000, step: int = 21, n
     transitions = transition_report(model, viterbi)
     # rows sorted by mean Vol20 so they line up with calm / choppy / crisis
     order = np.argsort(model.means_[:, FEATURE_COLS.index('Vol20')])
-    state_table = pd.DataFrame(model.means_[order], columns=FEATURE_COLS,
-                               index=['calm', 'choppy', 'crisis'])
+    state_table = pd.DataFrame(model.means_[order], columns=FEATURE_COLS, index=names)
     state_table['stationary'] = transitions['stationary']
     state_table['implied_dwell'] = transitions['implied_dwell']
     state_table['realised_dwell'] = transitions['realised_dwell']
@@ -75,6 +80,8 @@ def hmm_pipeline(ticker: str = '^GSPC', min_train: int = 1000, step: int = 21, n
     return {'ticker': clean,
             'table': table,
             'states': states,
+            'alerts': alerts,
+            'p_crisis': p_crisis,
             'probs': frame.drop(columns=['state', 'mu', 'sigma']),
             'results': results,
             'forecast': frame[['mu', 'sigma']],
