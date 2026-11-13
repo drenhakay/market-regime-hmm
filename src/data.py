@@ -34,7 +34,6 @@ def load_prices(ticker: str = "^GSPC", start: str = "2000-01-01",
     return df
 
 
-
 def build_features(prices: pd.DataFrame) -> pd.DataFrame:
     """
     Causal daily feature frame indexed by date, columns == FEATURE_COLS.
@@ -52,7 +51,6 @@ def build_features(prices: pd.DataFrame) -> pd.DataFrame:
     return features
 
 
-
 def emissions(prices: pd.DataFrame) -> tuple[np.ndarray, pd.DatetimeIndex, pd.Series]:
     """
     Feature matrix X, its dates and next_day_ret, aligned so row i is known at the close of
@@ -67,7 +65,6 @@ def emissions(prices: pd.DataFrame) -> tuple[np.ndarray, pd.DatetimeIndex, pd.Se
     dates = combined.index
     next_day_ret = combined['next_ret']
     return (X, dates, next_day_ret)
-
 
 
 def clean_ticker(ticker: str) -> str:

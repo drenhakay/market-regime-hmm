@@ -10,8 +10,6 @@ from src.hmm import fit_hmm, label_states
 from src.data import FEATURE_COLS
 
 
-
-
 def _filtered_probs(model: GaussianHMM, X_seq: np.ndarray, n_past: int) -> np.ndarray:
     """
     Forward filter: the state at row i uses only rows 0..i (no backward pass).

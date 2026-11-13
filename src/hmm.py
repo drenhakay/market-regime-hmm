@@ -83,6 +83,7 @@ def transition_report(model: GaussianHMM, viterbi_path: np.ndarray) -> dict:
     return {"P": p, "stationary": stationary,
         "implied_dwell": implied_dwell, "realised_dwell": realised_dwell}
 
+
 def _n_params(K: int, d: int) -> int:
     """
     Free parameters in a full-covariance Gaussian HMM (used for BIC).
@@ -92,6 +93,7 @@ def _n_params(K: int, d: int) -> int:
     means = K * d
     covs = K * d * (d + 1) // 2
     return trans + start + means + covs
+
 
 def select_n_states(X: np.ndarray, train_end: int,
                     candidates: tuple[int, ...] = (2, 3, 4, 5)) -> list[dict]:
